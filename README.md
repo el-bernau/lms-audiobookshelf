@@ -58,4 +58,4 @@ For each book you can choose **Resume (at X:XX)** or **Play from Start**. Indivi
 
 ## License
 
-GPL-2.0
+MIT
