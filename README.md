@@ -1,5 +1,7 @@
 # Audiobookshelf Plugin for Lyrion Music Server
 
+Not finish at all - created by claude.
+
 Browse and play audiobooks from your [Audiobookshelf](https://www.audiobookshelf.org/) server directly in [Lyrion Music Server](https://lyrion.org/) (formerly Logitech Media Server / Squeezebox).
 
 ## Features
