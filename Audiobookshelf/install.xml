@@ -1,0 +1,16 @@
+<?xml version='1.0' standalone='yes'?>
+<extension>
+    <name>AUDIOBOOKSHELF</name>
+    <creator>Raphael Bernau</creator>
+    <defaultState>enabled</defaultState>
+    <description>AUDIOBOOKSHELF_DESC</description>
+    <module>Plugins::Audiobookshelf::Plugin</module>
+    <optionsURL>plugins/Audiobookshelf/settings/basic.html</optionsURL>
+    <targetApplication>
+        <id>Lyrion Music Server</id>
+        <maxVersion>*</maxVersion>
+        <minVersion>8.0</minVersion>
+    </targetApplication>
+    <type>2</type>
+    <version>1.0.0</version>
+</extension>

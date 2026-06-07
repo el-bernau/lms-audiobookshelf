@@ -1,0 +1,63 @@
+AUDIOBOOKSHELF
+	EN	Audiobookshelf
+	DE	Audiobookshelf
+
+AUDIOBOOKSHELF_DESC
+	EN	Browse and play audiobooks from your Audiobookshelf server
+	DE	Hörbücher von Ihrem Audiobookshelf-Server durchsuchen und abspielen
+
+AUDIOBOOKSHELF_NOT_CONFIGURED
+	EN	Please configure the Audiobookshelf plugin in Settings
+	DE	Bitte konfigurieren Sie das Audiobookshelf-Plugin in den Einstellungen
+
+AUDIOBOOKSHELF_SERVER_URL
+	EN	Server URL
+	DE	Server-URL
+
+AUDIOBOOKSHELF_SERVER_URL_DESC
+	EN	URL of your Audiobookshelf server, e.g. http://192.168.1.10:13378
+	DE	URL Ihres Audiobookshelf-Servers, z.B. http://192.168.1.10:13378
+
+AUDIOBOOKSHELF_API_TOKEN
+	EN	API Token
+	DE	API-Token
+
+AUDIOBOOKSHELF_API_TOKEN_DESC
+	EN	API token from your Audiobookshelf user settings (Settings → Users → your user → API Token)
+	DE	API-Token aus Ihren Audiobookshelf-Benutzereinstellungen (Einstellungen → Benutzer → Ihr Benutzer → API-Token)
+
+AUDIOBOOKSHELF_SYNC_INTERVAL
+	EN	Sync interval (seconds)
+	DE	Sync-Intervall (Sekunden)
+
+AUDIOBOOKSHELF_SYNC_INTERVAL_DESC
+	EN	How often to sync playback position with Audiobookshelf (default: 30)
+	DE	Wie oft die Wiedergabeposition mit Audiobookshelf synchronisiert wird (Standard: 30)
+
+AUDIOBOOKSHELF_AUTO_RESUME
+	EN	Auto-resume from saved position
+	DE	Automatisch von gespeicherter Position fortsetzen
+
+AUDIOBOOKSHELF_AUTO_RESUME_DESC
+	EN	Show Resume option when a book has saved progress
+	DE	Resume-Option anzeigen, wenn ein Hörbuch gespeicherten Fortschritt hat
+
+AUDIOBOOKSHELF_IN_PROGRESS
+	EN	In Progress
+	DE	Aktuelle Hörbücher
+
+AUDIOBOOKSHELF_BROWSE
+	EN	Browse Libraries
+	DE	Bibliotheken durchsuchen
+
+AUDIOBOOKSHELF_NOW_PLAYING
+	EN	Now Playing
+	DE	Jetzt läuft
+
+AUDIOBOOKSHELF_RESUME
+	EN	Resume
+	DE	Fortsetzen
+
+AUDIOBOOKSHELF_PLAY_FROM_START
+	EN	Play from Start
+	DE	Von Anfang an spielen

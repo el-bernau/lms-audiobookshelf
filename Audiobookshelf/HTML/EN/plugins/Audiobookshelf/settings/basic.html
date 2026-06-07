@@ -1,0 +1,24 @@
+[% PROCESS settings/header.html %]
+
+	[% WRAPPER setting title="AUDIOBOOKSHELF_SERVER_URL" desc="AUDIOBOOKSHELF_SERVER_URL_DESC" %]
+		<input type="text" name="pref_server_url" id="pref_server_url"
+			value="[% prefs.pref_server_url | html %]" size="50"
+			placeholder="http://192.168.1.10:13378">
+	[% END %]
+
+	[% WRAPPER setting title="AUDIOBOOKSHELF_API_TOKEN" desc="AUDIOBOOKSHELF_API_TOKEN_DESC" %]
+		<input type="text" name="pref_api_token" id="pref_api_token"
+			value="[% prefs.pref_api_token | html %]" size="80">
+	[% END %]
+
+	[% WRAPPER setting title="AUDIOBOOKSHELF_SYNC_INTERVAL" desc="AUDIOBOOKSHELF_SYNC_INTERVAL_DESC" %]
+		<input type="number" name="pref_sync_interval" id="pref_sync_interval"
+			value="[% prefs.pref_sync_interval | html %]" min="10" max="300" size="5">
+	[% END %]
+
+	[% WRAPPER setting title="AUDIOBOOKSHELF_AUTO_RESUME" desc="AUDIOBOOKSHELF_AUTO_RESUME_DESC" %]
+		<input type="checkbox" name="pref_auto_resume" id="pref_auto_resume"
+			value="1" [% IF prefs.pref_auto_resume %]checked[% END %]>
+	[% END %]
+
+[% PROCESS settings/footer.html %]

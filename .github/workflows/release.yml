@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ZIP
+        run: zip -r Audiobookshelf.zip Audiobookshelf/
+
+      - name: Get version and SHA
+        id: meta
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          echo "sha=$(sha1sum Audiobookshelf.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Audiobookshelf.zip
+
+      - name: Update extensions.xml
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          SHA="${{ steps.meta.outputs.sha }}"
+          REPO="${{ github.repository }}"
+          URL="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/Audiobookshelf.zip"
+          LINK="https://github.com/${REPO}"
+          sed -i \
+            -e "s|<plugin name=\"Audiobookshelf\" version=\"[^\"]*\"|<plugin name=\"Audiobookshelf\" version=\"${VERSION}\"|" \
+            -e "s|<url>.*</url>|<url>${URL}</url>|" \
+            -e "s|<sha>.*</sha>|<sha>${SHA}</sha>|" \
+            -e "s|<link>.*</link>|<link>${LINK}</link>|" \
+            extensions.xml
+
+      - name: Commit extensions.xml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add extensions.xml
+          git commit -m "Release ${{ github.ref_name }}"
+          git push origin HEAD:main
