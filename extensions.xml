@@ -11,9 +11,9 @@
       <desc lang="DE">Hörbücher vom Audiobookshelf-Server abspielen mit Fortsetzen, bidirektionalem Positionssync und Unterstützung für MP3 und M4B.</desc>
       <creator>Raphael Bernau</creator>
       <email>raphael.bernau@gmail.com</email>
-      <link>https://github.com/GITHUB_USERNAME/lms-audiobookshelf</link>
-      <url>https://github.com/GITHUB_USERNAME/lms-audiobookshelf/releases/download/v1.0.0/Audiobookshelf.zip</url>
-      <sha>PLACEHOLDER_SHA1</sha>
+      <link>https://github.com/el-bernau/lms-audiobookshelf</link>
+      <url>https://github.com/el-bernau/lms-audiobookshelf/releases/download/v1.0.0/Audiobookshelf.zip</url>
+      <sha>d6de69a1922fff0c9c47eb813d54eb5d7414cd29</sha>
     </plugin>
   </plugins>
 </extensions>
