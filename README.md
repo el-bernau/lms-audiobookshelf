@@ -23,7 +23,7 @@ Browse and play audiobooks from your [Audiobookshelf](https://www.audiobookshelf
 1. In LMS, go to **Settings → Plugins**
 2. Scroll to **Add a third-party repository** and enter:
    ```
-   https://raw.githubusercontent.com/GITHUB_USERNAME/lms-audiobookshelf/main/extensions.xml
+   https://raw.githubusercontent.com/el-bernau/lms-audiobookshelf/main/extensions.xml
    ```
 3. Click **Add** — "Audiobookshelf" will appear in the plugin list
 4. Click **Install** and restart LMS when prompted
