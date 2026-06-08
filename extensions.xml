@@ -10,7 +10,7 @@
       <desc lang="EN">Browse and play audiobooks from your Audiobookshelf server. Supports resume from saved position, bidirectional position sync, and both MP3 and M4B formats.</desc>
       <desc lang="DE">Hörbücher vom Audiobookshelf-Server abspielen mit Fortsetzen, bidirektionalem Positionssync und Unterstützung für MP3 und M4B.</desc>
       <creator>Raphael Bernau</creator>
-      <email>raphael.bernau@gmail.com</email>
+      <email>software@bernau.at</email>
       <link>https://github.com/el-bernau/lms-audiobookshelf</link>
       <url>https://github.com/el-bernau/lms-audiobookshelf/releases/download/v1.0.0/Audiobookshelf.zip</url>
       <sha>d6de69a1922fff0c9c47eb813d54eb5d7414cd29</sha>
