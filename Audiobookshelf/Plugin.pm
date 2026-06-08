@@ -80,6 +80,27 @@ sub _errorItem {
     return { type => 'text', name => $msg };
 }
 
+# Map an ABS audioFile to the LMS format/content_type used by the conversion
+# table. The ABS file endpoint is extension-less, so we embed this in the
+# audiobookshelf:// URL (see ProtocolHandler::getFormatForURL).
+sub _formatForAudioFile {
+    my $af  = shift || {};
+    my $ext = lc($af->{metadata}{ext} || '');
+    $ext =~ s/^\.//;
+
+    return 'mp3' if $ext eq 'mp3';
+    return 'mp4' if $ext =~ /^(m4a|m4b|mp4)$/;
+    return 'ogg' if $ext eq 'ogg' || $ext eq 'oga';
+    return 'aac' if $ext eq 'aac';
+
+    # Fall back to codec when the extension is missing/unknown
+    my $codec = lc($af->{codec} || '');
+    return 'mp3' if $codec eq 'mp3';
+    return 'mp4' if $codec eq 'aac';
+    return 'ogg' if $codec eq 'vorbis' || $codec eq 'opus';
+    return 'mp3';
+}
+
 # ---- Main Menu Feed ----
 
 sub _handleFeed {
@@ -334,6 +355,7 @@ sub _buildBookMenu {
     my $fileIdx = 0;
     for my $af (@$audioFiles) {
         my $ino       = $af->{ino};
+        my $fmt       = _formatForAudioFile($af);
         my $fileTitle = $af->{metaTags}{tagTitle} || $af->{metadata}{title}
                         || $af->{metadata}{filename} || "Part " . ($fileIdx + 1);
         my $offsetStr = _formatTime($offsets[$fileIdx]);
@@ -341,7 +363,7 @@ sub _buildBookMenu {
         push @items, {
             name      => "$offsetStr \x{2014} $fileTitle",
             type      => 'audio',
-            play      => "audiobookshelf://$itemId/$ino",
+            play      => "audiobookshelf://$itemId/$ino?format=$fmt",
             on_select => 'play',
             image     => $cover,
         };
@@ -382,12 +404,14 @@ sub _playHandler {
     }
     $seekTime = 0 if $seekTime < 0;
 
-    # Build audiobookshelf:// URLs; embed seekTime only in the starting file
+    # Build audiobookshelf:// URLs; embed format always and seekTime only in
+    # the starting file.
     my @urls;
     for my $i (0 .. $#$audioFiles) {
         my $ino = $audioFiles->[$i]{ino};
-        my $url = "audiobookshelf://$itemId/$ino";
-        $url .= "?seekTime=$seekTime" if $i == $startIdx && $seekTime > 0;
+        my $fmt = _formatForAudioFile($audioFiles->[$i]);
+        my $url = "audiobookshelf://$itemId/$ino?format=$fmt";
+        $url .= "&seekTime=$seekTime" if $i == $startIdx && $seekTime > 0;
         push @urls, $url;
     }
 

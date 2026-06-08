@@ -11,24 +11,37 @@ my $prefs = preferences('plugin.audiobookshelf');
 
 Slim::Player::ProtocolHandlers->registerHandler('audiobookshelf', __PACKAGE__);
 
-# audiobookshelf://{itemId}/{ino}?seekTime={seconds}
+# audiobookshelf://{itemId}/{ino}?format={fmt}&seekTime={seconds}
 sub _unwrapUrl {
     my ($class, $url) = @_;
     my ($itemId, $ino, $qs) = ($url =~ m{^audiobookshelf://([^/?]+)/([^/?]+)(?:\?(.+))?$});
     my $seekTime = 0;
+    my $format   = '';
     if ($qs) {
         ($seekTime) = ($qs =~ /(?:^|&)seekTime=([^&]+)/);
         $seekTime ||= 0;
+        ($format)   = ($qs =~ /(?:^|&)format=([^&]+)/);
+        $format   ||= '';
     }
     my $httpUrl = $prefs->get('server_url') . "/api/items/$itemId/file/$ino?token=" . $prefs->get('api_token');
-    return ($httpUrl, $seekTime + 0);
+    return ($httpUrl, $seekTime + 0, $format);
+}
+
+# LMS uses this to pick the conversion/playback rule for the URL. The ABS file
+# endpoint is extension-less, so without this the scanned content_type ends up
+# 'unk' and Song::open can't build a command line (track skips after ~2s).
+sub getFormatForURL {
+    my ($class, $url) = @_;
+    my (undef, undef, $format) = $class->_unwrapUrl($url);
+    return $format || 'mp3';
 }
 
 sub scanUrl {
     my ($class, $url, $args) = @_;
 
     my $song = $args->{song};
-    my ($httpUrl, $seekTime) = $class->_unwrapUrl($url);
+    my ($httpUrl, $seekTime, $format) = $class->_unwrapUrl($url);
+    $format ||= 'mp3';
 
     $song->seekdata({ startTime => $seekTime }) if $seekTime > 0;
 
@@ -36,8 +49,11 @@ sub scanUrl {
     $args->{cb} = sub {
         my $track = shift;
         if ($track) {
-            main::INFOLOG && $log->info("Scanned audiobookshelf $url => ", $track->url, " seekTime=$seekTime");
+            main::INFOLOG && $log->info("Scanned audiobookshelf $url => ", $track->url, " format=$format seekTime=$seekTime");
             $song->streamUrl($track->url);
+            # The scanned (extension-less) URL leaves content_type as 'unk';
+            # set it explicitly so Song::open can build a playback command.
+            $track->content_type($format);
             $track->url($url);
         }
         $cb->($track, @_);
