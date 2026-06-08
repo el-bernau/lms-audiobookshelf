@@ -4,7 +4,7 @@
     <title lang="EN">Audiobookshelf for Lyrion Music Server</title>
   </details>
   <plugins>
-    <plugin name="Audiobookshelf" version="1.0.0" minTarget="8.0" maxTarget="*">
+    <plugin name="Audiobookshelf" version="1.0.1" minTarget="8.0" maxTarget="*">
       <title lang="EN">Audiobookshelf</title>
       <title lang="DE">Audiobookshelf</title>
       <desc lang="EN">Browse and play audiobooks from your Audiobookshelf server. Supports resume from saved position, bidirectional position sync, and both MP3 and M4B formats.</desc>
@@ -12,8 +12,8 @@
       <creator>Raphael Bernau</creator>
       <email>software@bernau.at</email>
       <link>https://github.com/el-bernau/lms-audiobookshelf</link>
-      <url>https://github.com/el-bernau/lms-audiobookshelf/releases/download/v1.0.0/Audiobookshelf.zip</url>
-      <sha>d6de69a1922fff0c9c47eb813d54eb5d7414cd29</sha>
+      <url>https://github.com/el-bernau/lms-audiobookshelf/releases/download/v1.0.1/Audiobookshelf.zip</url>
+      <sha>f2daa46ce4ffa969ef2181f12a0926a79f5aa028</sha>
     </plugin>
   </plugins>
 </extensions>
