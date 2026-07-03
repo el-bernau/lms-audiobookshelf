@@ -11,20 +11,23 @@ my $prefs = preferences('plugin.audiobookshelf');
 
 Slim::Player::ProtocolHandlers->registerHandler('audiobookshelf', __PACKAGE__);
 
-# audiobookshelf://{itemId}/{ino}?format={fmt}&seekTime={seconds}
+# audiobookshelf://{itemId}/{ino}?format={fmt}&dur={seconds}&seekTime={seconds}
 sub _unwrapUrl {
     my ($class, $url) = @_;
     my ($itemId, $ino, $qs) = ($url =~ m{^audiobookshelf://([^/?]+)/([^/?]+)(?:\?(.+))?$});
     my $seekTime = 0;
     my $format   = '';
+    my $dur      = 0;
     if ($qs) {
         ($seekTime) = ($qs =~ /(?:^|&)seekTime=([^&]+)/);
         $seekTime ||= 0;
         ($format)   = ($qs =~ /(?:^|&)format=([^&]+)/);
         $format   ||= '';
+        ($dur)      = ($qs =~ /(?:^|&)dur=([^&]+)/);
+        $dur      ||= 0;
     }
     my $httpUrl = $prefs->get('server_url') . "/api/items/$itemId/file/$ino?token=" . $prefs->get('api_token');
-    return ($httpUrl, $seekTime + 0, $format);
+    return ($httpUrl, $seekTime + 0, $format, $dur + 0);
 }
 
 # LMS uses this to pick the conversion/playback rule for the URL. The ABS file
@@ -40,7 +43,7 @@ sub scanUrl {
     my ($class, $url, $args) = @_;
 
     my $song = $args->{song};
-    my ($httpUrl, $seekTime, $format) = $class->_unwrapUrl($url);
+    my ($httpUrl, $seekTime, $format, $dur) = $class->_unwrapUrl($url);
     $format ||= 'mp3';
 
     $song->seekdata({ startTime => $seekTime }) if $seekTime > 0;
@@ -49,11 +52,18 @@ sub scanUrl {
     $args->{cb} = sub {
         my $track = shift;
         if ($track) {
-            main::INFOLOG && $log->info("Scanned audiobookshelf $url => ", $track->url, " format=$format seekTime=$seekTime");
+            main::INFOLOG && $log->info("Scanned audiobookshelf $url => ", $track->url, " format=$format dur=$dur seekTime=$seekTime");
             $song->streamUrl($track->url);
             # The scanned (extension-less) URL leaves content_type as 'unk';
             # set it explicitly so Song::open can build a playback command.
             $track->content_type($format);
+            # Give LMS the real track length. Without it the song duration is
+            # unknown, the progress bar is broken and some players mis-handle the
+            # end of the finite stream.
+            if ($dur) {
+                $track->secs($dur);
+                $song->duration($dur);
+            }
             $track->url($url);
         }
         $cb->($track, @_);
@@ -74,18 +84,19 @@ sub getNextTrack {
     if (my $seekdata = $song->seekdata) {
         if (my $startTime = $seekdata->{startTime}) {
             my $ct = $song->currentTrack->content_type || '';
-            if ($ct =~ /mp4|m4[ab]/i) {
-                # MP4 container: moov atom is typically at the end of the file.
-                # Byte-offset Range requests break decoding (skip the moov).
-                # Instead, pass timeOffset so LMS passes -ss to ffmpeg (R mode),
-                # which fetches the URL itself and can seek to find the moov.
-                $song->seekdata({ timeOffset => $startTime + 0 });
-                main::INFOLOG && $log->info("M4B: transcoder seek to $startTime seconds");
-            } else {
-                # For MP3 and similar: byte-offset Range request works fine.
+            if ($ct eq 'mp3') {
+                # mp3 is streamed directly, so a byte-offset Range request seeks
+                # accurately without a transcoder.
                 my $newdata = $song->getSeekData($startTime);
                 $song->seekdata($newdata) if $newdata;
-                main::INFOLOG && $log->info("MP3: byte-offset seek to $startTime seconds");
+                main::INFOLOG && $log->info("mp3: byte-offset seek to $startTime seconds");
+            } else {
+                # Everything else (mp4/ogg/aac/flac) is transcoded by ffmpeg from
+                # the remote URL. Byte-offset seeking would corrupt the container
+                # (e.g. an MP4 moov atom lives at the end); pass timeOffset so LMS
+                # gives ffmpeg -ss instead.
+                $song->seekdata({ timeOffset => $startTime + 0 });
+                main::INFOLOG && $log->info("$ct: transcoder seek to $startTime seconds");
             }
         }
     }

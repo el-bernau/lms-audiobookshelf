@@ -129,13 +129,15 @@ sub _formatForAudioFile {
 
     return 'mp3' if $ext eq 'mp3';
     return 'mp4' if $ext =~ /^(m4a|m4b|mp4)$/;
-    return 'ogg' if $ext eq 'ogg' || $ext eq 'oga';
+    return 'ogg' if $ext =~ /^(ogg|oga|opus)$/;
+    return 'flc' if $ext eq 'flac' || $ext eq 'flc';
     return 'aac' if $ext eq 'aac';
 
     # Fall back to codec when the extension is missing/unknown
     my $codec = lc($af->{codec} || '');
     return 'mp3' if $codec eq 'mp3';
     return 'mp4' if $codec eq 'aac';
+    return 'flc' if $codec eq 'flac';
     return 'ogg' if $codec eq 'vorbis' || $codec eq 'opus';
     return 'mp3';
 }
@@ -391,14 +393,17 @@ sub _buildBookMenu {
     for my $af (@$audioFiles) {
         my $ino       = $af->{ino};
         my $fmt       = _formatForAudioFile($af);
+        my $dur       = $af->{duration} || 0;
         my $fileTitle = $af->{metaTags}{tagTitle} || $af->{metadata}{title}
                         || $af->{metadata}{filename} || "Part " . ($fileIdx + 1);
         my $offsetStr = _formatTime($offsets[$fileIdx]);
 
+        my $play = "audiobookshelf://$itemId/$ino?format=$fmt";
+        $play .= "&dur=$dur" if $dur;
         push @items, {
             name      => "$offsetStr \x{2014} $fileTitle",
             type      => 'audio',
-            play      => "audiobookshelf://$itemId/$ino?format=$fmt",
+            play      => $play,
             on_select => 'play',
             image     => $cover,
         };
@@ -448,7 +453,9 @@ sub _playHandler {
     for my $i (0 .. $#$audioFiles) {
         my $ino = $audioFiles->[$i]{ino};
         my $fmt = _formatForAudioFile($audioFiles->[$i]);
+        my $dur = $audioFiles->[$i]{duration} || 0;
         my $url = "audiobookshelf://$itemId/$ino?format=$fmt";
+        $url .= "&dur=$dur" if $dur;
         $url .= "&seekTime=$seekTime" if $i == $startIdx && $seekTime > 0;
         push @urls, $url;
     }
