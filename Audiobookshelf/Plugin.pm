@@ -4,6 +4,7 @@ use strict;
 use base qw(Slim::Plugin::OPMLBased);
 
 use JSON::XS::VersionOneAndTwo;
+use Scalar::Util qw(blessed);
 use Time::HiRes;
 
 use Slim::Control::Request;
@@ -11,6 +12,7 @@ use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Player::Source;
 use Slim::Player::Playlist;
 use Slim::Player::Sync;
+use Slim::Utils::Cache;
 use Slim::Utils::Log;
 use Slim::Utils::Prefs;
 use Slim::Utils::Strings qw(cstring);
@@ -29,6 +31,12 @@ my $log = Slim::Utils::Log->addLogCategory({
 });
 
 my $prefs = preferences('plugin.audiobookshelf');
+my $cache = Slim::Utils::Cache->new();
+
+# Per-book metadata for the player/queue views (see bookMeta), and when we
+# last tried to fetch a book that wasn't known yet.
+my %bookMeta;
+my %metaFetched;
 
 sub getDisplayName { 'AUDIOBOOKSHELF' }
 
@@ -79,6 +87,91 @@ sub _formatTime {
 sub _errorItem {
     my $msg = shift;
     return { type => 'text', name => $msg };
+}
+
+sub coverUrl {
+    my $itemId = shift;
+    return _server() . "/api/items/$itemId/cover?token=" . _token();
+}
+
+# Cover for a book in a (minified) list response, unless it has none.
+sub _listCover {
+    my $item = shift;
+    return undef if exists $item->{media}{coverPath} && !$item->{media}{coverPath};
+    return coverUrl($item->{id});
+}
+
+sub _fileTitle {
+    my ($af, $idx) = @_;
+    return $af->{metaTags}{tagTitle} || $af->{metadata}{title}
+        || $af->{metadata}{filename} || 'Part ' . ($idx + 1);
+}
+
+# Keep what the player views need about a book: title, author, whether it has
+# a cover, and a title per audio file. /api/items/:id lists authors, while the
+# minified list endpoints only carry authorName.
+sub _rememberBook {
+    my $item = shift;
+    return unless $item && $item->{id};
+
+    my $media      = $item->{media} || {};
+    my $meta       = $media->{metadata} || {};
+    my $audioFiles = $media->{audioFiles} || [];
+
+    my %files;
+    for my $i (0 .. $#$audioFiles) {
+        my $af = $audioFiles->[$i];
+        next unless defined $af->{ino};
+        $files{ $af->{ino} } = { title => _fileTitle($af, $i), duration => $af->{duration} };
+    }
+
+    my $book = {
+        title   => $meta->{title} || $item->{id},
+        author  => $meta->{authorName} || join(', ', map { $_->{name} } @{ $meta->{authors} || [] }),
+        noCover => (exists $media->{coverPath} && !$media->{coverPath}) ? 1 : 0,
+        files   => \%files,
+    };
+
+    $bookMeta{ $item->{id} } = $book;
+    $cache->set('abs_book_' . $item->{id}, $book, '30 days');
+    return $book;
+}
+
+# Metadata of a book for ProtocolHandler::getMetadataFor. Called for every
+# track in every status query, so it answers from memory. A book we don't
+# know yet (e.g. a queue restored after a restart) is fetched in the
+# background and players showing it are told to refresh once it arrives.
+sub bookMeta {
+    my $itemId = shift || return {};
+
+    return $bookMeta{$itemId} if $bookMeta{$itemId};
+
+    if (my $cached = $cache->get('abs_book_' . $itemId)) {
+        return $bookMeta{$itemId} = $cached;
+    }
+
+    my $now = time();
+    if (_server() && _token() && ($metaFetched{$itemId} || 0) < $now - 60) {
+        $metaFetched{$itemId} = $now;
+
+        Slim::Networking::SimpleAsyncHTTP->new(
+            sub {
+                my $item = eval { from_json(shift->content) };
+                return unless _rememberBook($item);
+
+                for my $client (Slim::Player::Client::clients()) {
+                    next unless grep {
+                        index(blessed($_) ? $_->url : $_, "audiobookshelf://$itemId/") == 0
+                    } @{ Slim::Player::Playlist::playList($client) };
+                    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+                }
+            },
+            sub { $log->warn("Metadata fetch for $itemId failed: " . ($_[1] || 'unknown')) },
+            { timeout => 15 }
+        )->get(_apiBase() . "/items/$itemId", _authHdr());
+    }
+
+    return {};
 }
 
 # Build cumulative time offsets for a book's audio files.
@@ -208,6 +301,7 @@ sub _inProgressFeed {
                     url         => \&_bookFeed,
                     passthrough => [{ itemId => $item->{id}, title => $title }],
                     type        => 'link',
+                    image       => _listCover($item),
                 };
             }
 
@@ -274,6 +368,7 @@ sub _libraryItemsFeed {
                     url         => \&_bookFeed,
                     passthrough => [{ itemId => $item->{id}, title => $title }],
                     type        => 'link',
+                    image       => _listCover($item),
                 };
             }
 
@@ -338,7 +433,8 @@ sub _buildBookMenu {
     my $meta       = $media->{metadata} || {};
     my $audioFiles = $media->{audioFiles} || [];
     my $title      = $meta->{title}      || $itemId;
-    my $cover      = _server() . "/api/items/$itemId/cover?token=" . _token();
+    my $book       = _rememberBook($item);
+    my $cover      = $book->{noCover} ? undef : coverUrl($itemId);
 
     # Build cumulative offsets (one per audio file). Fall back to the summed
     # file durations when ABS reports a null media.duration.
@@ -394,8 +490,7 @@ sub _buildBookMenu {
         my $ino       = $af->{ino};
         my $fmt       = _formatForAudioFile($af);
         my $dur       = $af->{duration} || 0;
-        my $fileTitle = $af->{metaTags}{tagTitle} || $af->{metadata}{title}
-                        || $af->{metadata}{filename} || "Part " . ($fileIdx + 1);
+        my $fileTitle = _fileTitle($af, $fileIdx);
         my $offsetStr = _formatTime($offsets[$fileIdx]);
 
         my $play = "audiobookshelf://$itemId/$ino?format=$fmt";
@@ -594,15 +689,15 @@ sub _bootstrapTracking {
             return unless $item && $item->{id};
 
             my $media      = $item->{media} || {};
-            my $meta       = $media->{metadata} || {};
             my $audioFiles = $media->{audioFiles} || [];
             my (undef, $offsetByIno, $totalDuration) = _computeOffsets($audioFiles);
+            my $book = _rememberBook($item);
 
             $client->pluginData('abs_item_id', $itemId);
             $client->pluginData('abs_offsets',  $offsetByIno);
             $client->pluginData('abs_duration', ($media->{duration} || $totalDuration));
             $client->pluginData('abs_tracking', 1);
-            $client->pluginData('abs_meta',    { title => ($meta->{title} || $itemId) });
+            $client->pluginData('abs_meta',    { title => $book->{title} });
 
             _startSyncTimer($client);
             main::INFOLOG && $log->info("ABS tracking bootstrapped for $itemId");

@@ -64,6 +64,9 @@ sub scanUrl {
                 $track->secs($dur);
                 $song->duration($dur);
             }
+            # Without a title the scanned track is named after its HTTP URL,
+            # which carries the API token and shows up in player displays.
+            $track->title($class->getMetadataFor(undef, $url)->{title});
             $track->url($url);
         }
         $cb->($track, @_);
@@ -102,6 +105,31 @@ sub getNextTrack {
     }
 
     $successCb->();
+}
+
+# Title, author, book and cover for the player, queue and now-playing views.
+# LMS only takes artwork for remote tracks from here; the HTTP handler we
+# inherit from falls back to a generic radio icon.
+sub getMetadataFor {
+    my ($class, $client, $url) = @_;
+
+    my ($itemId, $ino) = ($url || '') =~ m{^audiobookshelf://([^/?]+)/([^/?]+)};
+    return {} unless $itemId;
+
+    my (undef, undef, undef, $dur) = $class->_unwrapUrl($url);
+    my $book  = Plugins::Audiobookshelf::Plugin::bookMeta($itemId);
+    my $file  = $book->{files}{$ino} || {};
+    my $cover = $book->{noCover} ? undef : Plugins::Audiobookshelf::Plugin::coverUrl($itemId);
+
+    return {
+        title    => $file->{title} || $book->{title} || 'Audiobookshelf',
+        artist   => $book->{author},
+        album    => $book->{title},
+        duration => $dur || $file->{duration},
+        cover    => $cover,
+        icon     => $cover,
+        type     => 'Audiobookshelf',
+    };
 }
 
 sub isRemote        { 1 }
