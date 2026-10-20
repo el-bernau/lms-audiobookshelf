@@ -192,10 +192,10 @@ sub _computeOffsets {
     return (\@byIndex, \%byIno, $cumulative);
 }
 
-# The inode of the audiobookshelf:// track currently at the play head.
+# The inode of the audiobookshelf:// track at the play head, or of $url.
 sub _currentIno {
-    my $client = shift;
-    my $url = Slim::Player::Playlist::url($client) || '';
+    my ($client, $url) = @_;
+    $url ||= Slim::Player::Playlist::url($client) || '';
     my ($ino) = $url =~ m{^audiobookshelf://[^/]+/([^/?]+)};
     return $ino;
 }
@@ -204,9 +204,9 @@ sub _currentIno {
 # (elapsed time within that file). Uses the ino->offset map so it is correct
 # whether the whole book or just a single chapter file is queued.
 sub _currentAbsTime {
-    my $client = shift;
+    my ($client, $url) = @_;
     my $offsets  = $client->pluginData('abs_offsets') || {};
-    my $ino      = _currentIno($client);
+    my $ino      = _currentIno($client, $url);
     my $songtime = Slim::Player::Source::songTime($client) || 0;
     my $fileOffset = ($ino && defined $offsets->{$ino}) ? $offsets->{$ino} : 0;
     return $fileOffset + $songtime;
@@ -555,15 +555,17 @@ sub _playHandler {
         push @urls, $url;
     }
 
-    # Store tracking state before executing playlist commands
+    # Clearing stops whatever is playing, which syncs its position under the
+    # old tracking state (ProtocolHandler::onStop). Only then switch tracking
+    # over to this book, before the new playlist starts.
+    $client->execute(['playlist', 'clear']);
+
     $client->pluginData('abs_item_id', $itemId);
     $client->pluginData('abs_offsets',  $offsetByIno);
     $client->pluginData('abs_duration', $duration);
     $client->pluginData('abs_tracking', 1);
     $client->pluginData('abs_meta',    { title => $title, cover => $cover });
 
-    # Build and start playlist
-    $client->execute(['playlist', 'clear']);
     $client->execute(['playlist', 'addtracks', 'listref', \@urls]);
     $client->execute(['playlist', 'index', $startIdx]);
     $client->execute(['play']);
@@ -592,17 +594,21 @@ sub _startSyncTimer {
 sub _syncTick {
     my $client = shift;
     return unless $client && $client->pluginData('abs_tracking');
-    _syncPosition($client);
+    syncPosition($client);
     _startSyncTimer($client);
 }
 
-sub _syncPosition {
-    my ($client) = @_;
+# Push the play position to ABS. $url is the playing track when the caller
+# knows it better than the playlist does (e.g. while it is being cleared).
+sub syncPosition {
+    my ($client, $url) = @_;
 
     my $itemId   = $client->pluginData('abs_item_id') || return;
     my $duration = $client->pluginData('abs_duration') || 0;
 
-    my $absTime = _currentAbsTime($client);
+    return if $url && index($url, "audiobookshelf://$itemId/") != 0;
+
+    my $absTime = _currentAbsTime($client, $url);
 
     # Don't clobber the saved position with 0. songTime() reads 0 once the play
     # head has stopped/ended, so a stop fired at end-of-playlist would otherwise
@@ -667,9 +673,10 @@ sub _newsongCallback {
         }
 
     } else {
-        # Left ABS content: final sync and clear tracking
+        # Left ABS content: clear tracking. No final sync here: songTime() is
+        # already the new track's, which would reset the book to its start.
+        # ProtocolHandler::onStop synced the book before it was replaced.
         if ($client->pluginData('abs_tracking')) {
-            _syncPosition($client);
             $client->pluginData('abs_tracking', 0);
             Slim::Utils::Timers::killTimers($client, \&_syncTick);
         }
@@ -713,8 +720,10 @@ sub _stopCallback {
     my $request = shift;
     my $client  = $request->client() || return;
 
+    # The position was synced by ProtocolHandler::onStop. Once stopped,
+    # songTime() falls back to where the stream last (re)started, i.e. the
+    # last seek or resume, and syncing that would rewind ABS progress.
     return unless $client->pluginData('abs_tracking');
-    _syncPosition($client);
     Slim::Utils::Timers::killTimers($client, \&_syncTick);
 }
 
@@ -725,7 +734,7 @@ sub _pauseCallback {
     return unless $client->pluginData('abs_tracking');
 
     if ($client->isPaused()) {
-        _syncPosition($client);
+        syncPosition($client);
         Slim::Utils::Timers::killTimers($client, \&_syncTick);
     } else {
         _startSyncTimer($client);

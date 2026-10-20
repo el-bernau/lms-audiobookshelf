@@ -194,6 +194,15 @@ sub getMetadataFor {
     };
 }
 
+# LMS calls this right before it stops a playing or paused track, while the
+# play position is still valid. Sync it to ABS now; after the stop it's gone.
+sub onStop {
+    my ($class, $song) = @_;
+    my $client = $song->master() || return;
+    Plugins::Audiobookshelf::Plugin::syncPosition($client, $song->currentTrack->url)
+        if $client->pluginData('abs_tracking');
+}
+
 sub isRemote        { 1 }
 # Force LMS to proxy/transcode rather than handing the audiobookshelf:// URL
 # directly to the player (player wouldn't know how to fetch it anyway).
