@@ -4,8 +4,10 @@ use strict;
 use base qw(Slim::Plugin::OPMLBased);
 
 use JSON::XS::VersionOneAndTwo;
+use MIME::Base64 qw(encode_base64);
 use Scalar::Util qw(blessed);
 use Time::HiRes;
+use URI::Escape qw(uri_escape uri_escape_utf8);
 
 use Slim::Control::Request;
 use Slim::Networking::SimpleAsyncHTTP;
@@ -107,6 +109,96 @@ sub _fileTitle {
         || $af->{metadata}{filename} || 'Part ' . ($idx + 1);
 }
 
+# A book's author line. Minified list items carry authorName; expanded ones
+# (/api/items/:id, search results) may only list authors.
+sub _authorOf {
+    my $meta = shift || {};
+    return $meta->{authorName} || join(', ', map { $_->{name} } @{ $meta->{authors} || [] });
+}
+
+# Menu entry for a book in a list. $authorFirst puts the author in front, for
+# lists sorted by author.
+sub _bookItem {
+    my ($item, $authorFirst) = @_;
+    my $meta   = $item->{media}{metadata} || {};
+    my $title  = $meta->{title} || $item->{id};
+    my $author = _authorOf($meta);
+
+    my $name = !$author     ? $title
+             : $authorFirst ? "$author \x{2014} $title"
+             :                "$title \x{2014} $author";
+
+    return {
+        name        => $name,
+        url         => \&_bookFeed,
+        passthrough => [{ itemId => $item->{id}, title => $title }],
+        type        => 'link',
+        image       => _listCover($item),
+    };
+}
+
+# ABS filter value for a list (authors.<id>, series.<id>): base64, URL-escaped.
+sub _filter {
+    my ($group, $id) = @_;
+    return "$group." . uri_escape(encode_base64($id, ''));
+}
+
+# Fetch the slice [$index, $index + $quantity) of a paginated ABS list
+# ($path is below /api and already has a query string). ABS only pages in
+# multiples of limit, so use the window size as page size: that takes one
+# request, or two when the window doesn't start on a page boundary (LMS
+# shifts windows back by up to 10 items). Without a window, fetch everything.
+# Calls $cb->(\@results, $total) or $ecb->($error).
+sub _fetchWindow {
+    my ($path, $index, $quantity, $cb, $ecb) = @_;
+
+    $index = 0 unless $index && $index > 0;
+    my $limit = ($quantity && $quantity > 0) ? $quantity : 100_000;
+    my $page  = int($index / $limit);
+    my $skip  = $index - $page * $limit;
+
+    my (@results, $total, $fetch);
+    $fetch = sub {
+        my $p = shift;
+        Slim::Networking::SimpleAsyncHTTP->new(
+            sub {
+                my $data = eval { from_json(shift->content) } || {};
+                my $got  = $data->{results} || [];
+                push @results, @$got;
+                $total = $data->{total} unless defined $total;
+
+                # The window runs into the next page
+                return $fetch->($p + 1) if $p == $page && $skip && @$got == $limit;
+
+                undef $fetch;
+                splice(@results, 0, $skip);
+                splice(@results, $limit) if @results > $limit;
+                $cb->(\@results, defined $total ? $total : $index + @results);
+            },
+            sub {
+                undef $fetch;
+                $ecb->($_[1] || 'unknown');
+            },
+            { timeout => 30 }
+        )->get(_apiBase() . "$path&limit=$limit&page=$p", _authHdr());
+    };
+    $fetch->($page);
+}
+
+# The libraries holding books (podcast libraries are skipped).
+sub _getBookLibraries {
+    my ($cb, $ecb) = @_;
+
+    Slim::Networking::SimpleAsyncHTTP->new(
+        sub {
+            my $data = eval { from_json(shift->content) } || {};
+            $cb->([ grep { ($_->{mediaType} || '') eq 'book' } @{ $data->{libraries} || [] } ]);
+        },
+        sub { $ecb->($_[1] || 'unknown') },
+        { timeout => 15 }
+    )->get(_apiBase() . '/libraries', _authHdr());
+}
+
 # Keep what the player views need about a book: title, author, whether it has
 # a cover, and a title per audio file. /api/items/:id lists authors, while the
 # minified list endpoints only carry authorName.
@@ -127,7 +219,7 @@ sub _rememberBook {
 
     my $book = {
         title   => $meta->{title} || $item->{id},
-        author  => $meta->{authorName} || join(', ', map { $_->{name} } @{ $meta->{authors} || [] }),
+        author  => _authorOf($meta),
         noCover => (exists $media->{coverPath} && !$media->{coverPath}) ? 1 : 0,
         files   => \%files,
     };
@@ -268,6 +360,11 @@ sub _handleFeed {
             type => 'link',
         },
         {
+            name => cstring($client, 'SEARCH'),
+            url  => \&_searchFeed,
+            type => 'search',
+        },
+        {
             name => cstring($client, 'AUDIOBOOKSHELF_BROWSE'),
             url  => \&_librariesFeed,
             type => 'link',
@@ -290,19 +387,12 @@ sub _inProgressFeed {
             for my $item (@{ $data->{libraryItems} || [] }) {
                 next unless ($item->{mediaType} || '') eq 'book';
 
-                my $meta     = $item->{media}{metadata} || {};
                 my $progress = $item->{userMediaProgress} || {};
-                my $title    = $meta->{title}      || $item->{id};
-                my $author   = $meta->{authorName} || '';
                 my $pct      = int(($progress->{progress} || 0) * 100);
 
-                push @items, {
-                    name        => "$title" . ($author ? " \x{2014} $author" : '') . " ($pct%)",
-                    url         => \&_bookFeed,
-                    passthrough => [{ itemId => $item->{id}, title => $title }],
-                    type        => 'link',
-                    image       => _listCover($item),
-                };
+                my $entry = _bookItem($item);
+                $entry->{name} .= " ($pct%)";
+                push @items, $entry;
             }
 
             push @items, _errorItem(cstring($client, 'EMPTY')) unless @items;
@@ -321,69 +411,206 @@ sub _inProgressFeed {
 sub _librariesFeed {
     my ($client, $cb) = @_;
 
-    Slim::Networking::SimpleAsyncHTTP->new(
+    _getBookLibraries(
         sub {
-            my $http  = shift;
-            my $data  = eval { from_json($http->content) } || {};
-            my @items;
-
-            for my $lib (@{ $data->{libraries} || [] }) {
-                next unless ($lib->{mediaType} || '') eq 'book';
-                push @items, {
-                    name        => $lib->{name},
-                    url         => \&_libraryItemsFeed,
-                    passthrough => [{ libraryId => $lib->{id} }],
-                    type        => 'link',
-                };
-            }
+            my @items = map { {
+                name        => $_->{name},
+                url         => \&_libraryMenu,
+                passthrough => [{ libraryId => $_->{id} }],
+                type        => 'link',
+            } } @{ shift() };
 
             push @items, _errorItem(cstring($client, 'EMPTY')) unless @items;
             $cb->({ items => \@items });
         },
         sub {
-            $log->error('Libraries fetch failed: ' . $_[1]);
-            $cb->({ items => [_errorItem('Error: ' . ($_[1] || 'unknown'))] });
+            $log->error('Libraries fetch failed: ' . $_[0]);
+            $cb->({ items => [_errorItem('Error: ' . $_[0])] });
         },
-        { timeout => 15 }
-    )->get(_apiBase() . '/libraries', _authHdr());
+    );
 }
 
-sub _libraryItemsFeed {
+# One library: its books by title or by author, or its authors.
+sub _libraryMenu {
     my ($client, $cb, $params, $passthrough) = @_;
     my $libId = $passthrough->{libraryId};
 
-    Slim::Networking::SimpleAsyncHTTP->new(
+    $cb->({ items => [
+        {
+            name        => cstring($client, 'AUDIOBOOKSHELF_BOOKS_BY_TITLE'),
+            url         => \&_libraryItemsFeed,
+            passthrough => [{ libraryId => $libId, sort => 'media.metadata.title' }],
+            type        => 'link',
+        },
+        {
+            name        => cstring($client, 'AUDIOBOOKSHELF_BOOKS_BY_AUTHOR'),
+            url         => \&_libraryItemsFeed,
+            passthrough => [{ libraryId => $libId, sort => 'media.metadata.authorNameLF', authorFirst => 1 }],
+            type        => 'link',
+        },
+        {
+            name        => cstring($client, 'AUDIOBOOKSHELF_AUTHORS'),
+            url         => \&_authorsFeed,
+            passthrough => [{ libraryId => $libId }],
+            type        => 'link',
+        },
+    ] });
+}
+
+# Books of a library, optionally filtered (an author's or a series' books).
+# Fetches only the window LMS asks for, so libraries of any size page through.
+sub _libraryItemsFeed {
+    my ($client, $cb, $args, $passthrough) = @_;
+    my $libId = $passthrough->{libraryId};
+    my $sort  = $passthrough->{sort} || 'media.metadata.title';
+    my $index = $args->{index} || 0;
+
+    my $path = "/libraries/$libId/items?minified=1&sort=$sort";
+    $path .= '&filter=' . $passthrough->{filter} if $passthrough->{filter};
+
+    _fetchWindow($path, $index, $args->{quantity},
         sub {
-            my $http  = shift;
-            my $data  = eval { from_json($http->content) } || {};
-            my @items;
+            my ($results, $total) = @_;
+            return $cb->({ items => [_errorItem(cstring($client, 'EMPTY'))] }) unless $total;
 
-            for my $item (@{ $data->{results} || [] }) {
-                my $meta   = $item->{media}{metadata} || {};
-                my $title  = $meta->{title}      || $item->{id};
-                my $author = $meta->{authorName} || '';
-
-                push @items, {
-                    name        => $title . ($author ? " \x{2014} $author" : ''),
-                    url         => \&_bookFeed,
-                    passthrough => [{ itemId => $item->{id}, title => $title }],
-                    type        => 'link',
-                    image       => _listCover($item),
-                };
-            }
-
-            push @items, _errorItem(cstring($client, 'EMPTY')) unless @items;
-            $cb->({ items => \@items });
+            $cb->({
+                items  => [ map { _bookItem($_, $passthrough->{authorFirst}) } @$results ],
+                offset => $index,
+                total  => $total,
+            });
         },
         sub {
-            $log->error('Library items fetch failed: ' . $_[1]);
-            $cb->({ items => [_errorItem('Error: ' . ($_[1] || 'unknown'))] });
+            $log->error('Library items fetch failed: ' . $_[0]);
+            $cb->({ items => [_errorItem('Error: ' . $_[0])] });
         },
-        { timeout => 15 }
-    )->get(
-        _apiBase() . "/libraries/$libId/items?limit=100&sort=media.metadata.title&minified=1",
-        _authHdr()
     );
+}
+
+# Authors of a library, A-Z by last name, each leading to their books.
+sub _authorsFeed {
+    my ($client, $cb, $args, $passthrough) = @_;
+    my $libId = $passthrough->{libraryId};
+    my $index = $args->{index} || 0;
+
+    _fetchWindow("/libraries/$libId/authors?sort=lastFirst", $index, $args->{quantity},
+        sub {
+            my ($results, $total) = @_;
+            return $cb->({ items => [_errorItem(cstring($client, 'EMPTY'))] }) unless $total;
+
+            $cb->({
+                items  => [ map { _authorItem($libId, $_) } @$results ],
+                offset => $index,
+                total  => $total,
+            });
+        },
+        sub {
+            $log->error('Authors fetch failed: ' . $_[0]);
+            $cb->({ items => [_errorItem('Error: ' . $_[0])] });
+        },
+    );
+}
+
+sub _authorItem {
+    my ($libId, $author, $prefix) = @_;
+    my $name = $author->{name} || $author->{id};
+
+    return {
+        name        => ($prefix ? "$prefix: " : '') . $name
+                       . (defined $author->{numBooks} ? " ($author->{numBooks})" : ''),
+        url         => \&_libraryItemsFeed,
+        passthrough => [{
+            libraryId => $libId,
+            sort      => 'media.metadata.title',
+            filter    => _filter('authors', $author->{id}),
+        }],
+        type        => 'link',
+        image       => $author->{imagePath} ? _server() . "/api/authors/$author->{id}/image?token=" . _token() : undef,
+    };
+}
+
+# ---- Search ----
+
+# Search all book libraries. ABS matches books by title, subtitle, ISBN and
+# ASIN only, so matching authors and series are listed after the books.
+sub _searchFeed {
+    my ($client, $cb, $args) = @_;
+
+    my $query = defined $args->{search} ? $args->{search} : '';
+    utf8::decode($query) unless utf8::is_utf8($query);
+    $query =~ s/^\s+|\s+$//g;
+
+    return $cb->({ items => [_errorItem(cstring($client, 'EMPTY'))] }) unless length $query;
+
+    my $q = uri_escape_utf8($query);
+
+    _getBookLibraries(
+        sub {
+            my $libs = shift;
+            return $cb->({ items => [_errorItem(cstring($client, 'EMPTY'))] }) unless @$libs;
+
+            my @found;
+            my $pending = @$libs;
+
+            my $done = sub {
+                return if --$pending;
+                $cb->({ items => _searchItems($client, $libs, \@found) });
+            };
+
+            for my $i (0 .. $#$libs) {
+                Slim::Networking::SimpleAsyncHTTP->new(
+                    sub {
+                        $found[$i] = eval { from_json(shift->content) } || {};
+                        $done->();
+                    },
+                    sub {
+                        $log->warn("Search in $libs->[$i]{name} failed: " . ($_[1] || 'unknown'));
+                        $found[$i] = {};
+                        $done->();
+                    },
+                    { timeout => 15 }
+                )->get(_apiBase() . "/libraries/$libs->[$i]{id}/search?q=$q&limit=25", _authHdr());
+            }
+        },
+        sub {
+            $log->error('Search failed: ' . $_[0]);
+            $cb->({ items => [_errorItem('Error: ' . $_[0])] });
+        },
+    );
+}
+
+sub _searchItems {
+    my ($client, $libs, $found) = @_;
+    my (@books, @authors, @series);
+
+    for my $i (0 .. $#$libs) {
+        my $libId = $libs->[$i]{id};
+        my $res   = $found->[$i] || {};
+
+        push @books, map { _bookItem($_->{libraryItem}) }
+            grep { $_->{libraryItem} && $_->{libraryItem}{id} } @{ $res->{book} || [] };
+
+        push @authors, map { _authorItem($libId, $_, cstring($client, 'AUDIOBOOKSHELF_AUTHOR')) }
+            grep { $_->{id} } @{ $res->{authors} || [] };
+
+        for my $match (@{ $res->{series} || [] }) {
+            my $s = $match->{series} || next;
+            next unless $s->{id};
+            push @series, {
+                name        => cstring($client, 'AUDIOBOOKSHELF_SERIES') . ': ' . ($s->{name} || $s->{id}),
+                url         => \&_libraryItemsFeed,
+                passthrough => [{
+                    libraryId => $libId,
+                    sort      => 'sequence',
+                    filter    => _filter('series', $s->{id}),
+                }],
+                type        => 'link',
+            };
+        }
+    }
+
+    my @items = (@books, @authors, @series);
+    push @items, _errorItem(cstring($client, 'EMPTY')) unless @items;
+    return \@items;
 }
 
 # ---- Book Detail Menu ----

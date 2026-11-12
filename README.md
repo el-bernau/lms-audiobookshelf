@@ -6,7 +6,9 @@ Browse and play audiobooks from your [Audiobookshelf](https://www.audiobookshelf
 
 ## Features
 
-- Browse your ABS libraries and books
+- Browse your ABS libraries and books, of any library size (lists are paged from ABS as you scroll)
+- Book lists sorted by title or by author, and an A–Z authors list
+- Search across all book libraries: books, authors and series
 - Play MP3 and M4B audiobooks
 - Resume from saved position (pulls progress from ABS on resume)
 - Bidirectional position sync (pushes playback position to ABS every 30 seconds)
@@ -46,7 +48,11 @@ After installation, go to **Settings → Audiobookshelf**:
 On any player, open **My Apps → Audiobookshelf**:
 
 - **In Progress** — books you've started, sorted by most recent
-- **Browse Libraries** — all books in all libraries
+- **Search** — searches every book library. Matching books come first, then matching authors and series (each opens their books). ABS matches books by title, subtitle, ISBN and ASIN, so search for an author's name to find their books.
+- **Browse Libraries** — pick a library, then:
+  - **All Books (by Title)**
+  - **All Books (by Author)** — sorted by author last name, shown as "Author — Title"
+  - **Authors** — A–Z by last name with book counts; open one to see their books
 
 For each book you can choose **Resume (at X:XX)** or **Play from Start**. Individual chapter/file entries are also shown.
 

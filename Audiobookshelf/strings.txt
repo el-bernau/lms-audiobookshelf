@@ -61,3 +61,23 @@ AUDIOBOOKSHELF_RESUME
 AUDIOBOOKSHELF_PLAY_FROM_START
 	EN	Play from Start
 	DE	Von Anfang an spielen
+
+AUDIOBOOKSHELF_BOOKS_BY_TITLE
+	EN	All Books (by Title)
+	DE	Alle Hörbücher (nach Titel)
+
+AUDIOBOOKSHELF_BOOKS_BY_AUTHOR
+	EN	All Books (by Author)
+	DE	Alle Hörbücher (nach Autor)
+
+AUDIOBOOKSHELF_AUTHORS
+	EN	Authors
+	DE	Autoren
+
+AUDIOBOOKSHELF_AUTHOR
+	EN	Author
+	DE	Autor
+
+AUDIOBOOKSHELF_SERIES
+	EN	Series
+	DE	Serie
