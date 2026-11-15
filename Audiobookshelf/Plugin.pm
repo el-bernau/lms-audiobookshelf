@@ -96,10 +96,14 @@ sub coverUrl {
     return _server() . "/api/items/$itemId/cover?token=" . _token();
 }
 
+sub coverDefaultUrl { 
+    return _server() . "/audiobookshelf/book_placeholder.jpg";
+}
+
 # Cover for a book in a (minified) list response, unless it has none.
 sub _listCover {
     my $item = shift;
-    return undef if exists $item->{media}{coverPath} && !$item->{media}{coverPath};
+    return coverDefaultUrl() if exists $item->{media}{coverPath} && !$item->{media}{coverPath};
     return coverUrl($item->{id});
 }
 
